@@ -16,7 +16,7 @@ app.post("/search", async (req, res, next) => {
 		var start = m(req.body.start).unix() * 1000
 		var end = m(req.body.end).unix() * 1000 + 999
 
-		//console.log(start, end)
+		console.log(start, end)
 
 		var pattern = req.body.pattern
 		var is_regex = req.body.is_regex
