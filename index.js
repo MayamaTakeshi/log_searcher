@@ -5,6 +5,8 @@ const config = require('config')
 
 const fs = require('./lib/file_searcher.js')
 
+const _ = require('lodash')
+
 const app = express()
 app.use(bodyParser.json())
 
@@ -22,7 +24,7 @@ app.post("/search", async (req, res) => {
 		pattern = new RegExp(pattern)
 	}	
 
-	var folders = req.body.folders
+	var folders = _.map(req.body.folders, (folder) => config.base_dir + "/" + folder)
 
 	var result = await fs.filter_folders(folders, start, end, pattern, is_regex)
 	//console.log(result)
