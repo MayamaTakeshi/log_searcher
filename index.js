@@ -12,11 +12,12 @@ app.use(bodyParser.json())
 
 app.post("/search", async (req, res, next) => {
 	try {
+		console.log("/search")
 		console.log(req.body)
 		var start = m(req.body.start).unix() * 1000
 		var end = m(req.body.end).unix() * 1000 + 999
 
-		console.log(start, end)
+		console.log(`start=${start} end=${end}`)
 
 		var pattern = req.body.pattern
 		var is_regex = req.body.is_regex
@@ -37,6 +38,7 @@ app.post("/search", async (req, res, next) => {
 		}
 
 		res.end()
+		console.log(`Succefully found and sent ${result.length} lines`)
 	} catch (error) {
 		console.log(error)
 		return next(error)
