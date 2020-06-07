@@ -5,7 +5,7 @@ A simple node.js app providing search of log files via an HTTP API method.
 It will search multiple log folders (multiple applications).
 Applications must log lines starting with prefix:
 ```
-YYYY-MM-DD hh:mm:ss
+YYYY-MM-DD HH:mm:ss
 ```
 
 ## Installation
