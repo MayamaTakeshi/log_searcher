@@ -27,7 +27,8 @@ app.post("/search", async (req, res, next) => {
 
 		var folders = _.map(req.body.folders, (folder) => config.base_dir + "/" + folder)
 
-		var result = await fs.filter_folders(folders, start, end, pattern, is_regex)
+		var result = await fs.search(folders, start, end, pattern, is_regex)
+		result.sort() // need to sort it because we might have lines from different apps
 		//console.log(result)
 
 		res.status(200)
