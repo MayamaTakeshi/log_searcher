@@ -9,10 +9,19 @@ YYYY-MM-DD HH:mm:ss
 ```
 
 ## Installation
+
+Execute these:
 ```
 npm install
 cp config/default.js.sample config/default.js
 vim config/default.js # adjust as necessary
+```
+
+Then create app log folders under the folder specified by config.base_dir (they would be remote folder accessed by NFS). Ex:
+```
+  /mnt/nfs/log/myapp1
+  /mnt/nfs/log/myapp2
+  /mnt/nfs/log/myapp3
 ```
 
 ## Sample API call
