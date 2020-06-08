@@ -32,4 +32,4 @@ curl -s -x '' -X POST 'http://192.168.1.1:7000/search' -H 'Content-Type: applica
 ## Details
   - based on the folders list specified in the API call, we compose a file list to search.
   - the log files can be compressed: if they end with '.gz' or '.xz' they will be stream-decompressed for processing.
-  - to avoid generating an invalid search in case a log rotation happens while the resolved list of files is being processed, we will regenerate the file list after search and if it differs from the original, one, we will search them again.
+  - to avoid generating an invalid search in case a log rotation happens while the resolved list of files is being processed, we will regenerate the file list after search and if it differs from the original one, we will redo the search.
