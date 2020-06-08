@@ -3,6 +3,7 @@ const bodyParser = require('body-parser')
 const m = require('moment')
 const config = require('config')
 
+const fr = require('./lib/file_resolver.js')
 const fs = require('./lib/file_searcher.js')
 
 const _ = require('lodash')
@@ -27,7 +28,23 @@ app.post("/search", async (req, res, next) => {
 
 		var folders = _.map(req.body.folders, (folder) => config.base_dir + "/" + folder)
 
-		var result = await fs.search(folders, start, end, pattern, is_regex)
+		var files = await fr.resolve_files(folders, start, end)
+
+		var result = await fs.search(files, start, end, pattern, is_regex)
+
+		var files2 = await fr.resolve_files(folders, start, end)
+		if(!_.isEqual(files, files2)) {
+			// files to search changed. Refetch
+			result = await fs.search(files, start, end, pattern, is_regex)
+			if(!_.isEqual(files, files2)) {
+				var msg = "List to files to check changed during check more than once"
+				console.error(msg)
+				res.statusMessage = msg	
+				res.status(500).end()
+				return
+			}
+		}
+
 		result.sort() // need to sort it because we might have lines from different apps
 		//console.log(result)
 
