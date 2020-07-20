@@ -14,7 +14,7 @@
     "body-parser": "^1.19.0",
     "config": "^3.3.1",
     "express": "^4.17.1",
-    "lodash": "^4.17.15",
+    "lodash": "^4.17.19",
     "moment": "^2.26.0",
     "nodejs-fs-utils": "^1.2.5",
     "xz": "^2.0.2"
