@@ -16,7 +16,8 @@
     "lodash": "^4.17.19",
     "moment": "^2.26.0",
     "nodejs-fs-utils": "^1.2.5",
-    "xz": "^2.0.2"
+    "xz": "^2.0.2",
+    "y18n": "^4.0.1"
   },
   "devDependencies": {
     "jest": "^26.0.1"
