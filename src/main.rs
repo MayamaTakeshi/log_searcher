@@ -1,5 +1,5 @@
 use rouille::{Response, ResponseBody, router};
-use std::io::{BufReader, BufRead, Write};
+use std::io::{self, BufReader, BufRead, Write};
 use std::fs::{File, read_dir};
 use std::path::Path;
 use serde::Deserialize;
@@ -46,56 +46,57 @@ fn parse_timestamp(s: &str) -> Option<NaiveDateTime> {
 }
 
 // Stream file line by line
-fn search_file(path: &Path, start: NaiveDateTime, end: NaiveDateTime, search: &str, results: &mut impl Write) {
-    if let Ok(file) = File::open(path) {
-        let extension = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+fn search_file(path: &Path, start: NaiveDateTime, end: NaiveDateTime, search: &str, results: &mut impl Write) -> io::Result<()> {
+    let file = File::open(path)?;
+    let extension = path.extension().and_then(|e| e.to_str()).unwrap_or("");
 
-        match extension {
-            "gz" => {
-                let decoder = GzDecoder::new(file);
-                let reader = BufReader::new(decoder);
-                for line in reader.lines().flatten() {
-                    if line.len() >= 19 {
-                        if let Some(ts) = parse_timestamp(&line[..19]) {
-                            if ts >= start && ts <= end && line.contains(search) {
-                                let _ = writeln!(results, "{}", line);
-                            }
+    match extension {
+        "gz" => {
+            let decoder = GzDecoder::new(file);
+            let reader = BufReader::new(decoder);
+            for line in reader.lines() {
+                let line = line?;
+                if line.len() >= 19 {
+                    if let Some(ts) = parse_timestamp(&line[..19]) {
+                        if ts >= start && ts <= end && line.contains(search) {
+                            writeln!(results, "{}", line)?;
                         }
                     }
                 }
             }
-            "zip" => {
-                if let Ok(mut archive) = ZipArchive::new(file) {
-                    for i in 0..archive.len() {
-                        if let Ok(mut zfile) = archive.by_index(i) {
-                            let reader = BufReader::new(&mut zfile);
-                            for line in reader.lines().flatten() {
-                                if line.len() >= 19 {
-                                    if let Some(ts) = parse_timestamp(&line[..19]) {
-                                        if ts >= start && ts <= end && line.contains(search) {
-                                            let _ = writeln!(results, "{}", line);
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            _ => {
-                let reader = BufReader::new(file);
-                for line in reader.lines().flatten() {
+        }
+        "zip" => {
+            let mut archive = ZipArchive::new(file)?;
+            for i in 0..archive.len() {
+                let mut zfile = archive.by_index(i)?;
+                let reader = BufReader::new(&mut zfile);
+                for line in reader.lines() {
+                    let line = line?;
                     if line.len() >= 19 {
                         if let Some(ts) = parse_timestamp(&line[..19]) {
                             if ts >= start && ts <= end && line.contains(search) {
-                                let _ = writeln!(results, "{}", line);
+                                writeln!(results, "{}", line)?;
                             }
                         }
                     }
                 }
             }
         }
+        _ => {
+            let reader = BufReader::new(file);
+            for line in reader.lines() {
+                let line = line?;
+                if line.len() >= 19 {
+                    if let Some(ts) = parse_timestamp(&line[..19]) {
+                        if ts >= start && ts <= end && line.contains(search) {
+                            writeln!(results, "{}", line)?;
+                        }
+                    }
+                }
+            }
+        }
     }
+    Ok(())
 }
 
 fn main() {
@@ -133,13 +134,22 @@ fn main() {
 
                 let search_string = req.search_string.clone();
                 thread::spawn(move || {
-                    if let Ok(entries) = read_dir(folder_path) {
-                        for entry in entries.flatten() {
+                    let result = (|| -> io::Result<()> {
+                        let entries = read_dir(folder_path)?;
+                        for entry in entries {
+                            let entry = entry?;
                             let path = entry.path();
                             if path.is_file() {
-                                search_file(&path, start, end, &search_string, &mut writer);
+                                if let Err(e) = search_file(&path, start, end, &search_string, &mut writer) {
+                                    writeln!(writer, "X-LOG-SEARCHER-ERROR: Failed to process file {}: {}", path.display(), e)?;
+                                }
                             }
                         }
+                        Ok(())
+                    })();
+
+                    if let Err(e) = result {
+                        let _ = writeln!(writer, "X-LOG-SEARCHER-ERROR: {}", e);
                     }
                 });
 
