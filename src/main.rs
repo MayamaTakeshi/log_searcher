@@ -3,7 +3,7 @@ use std::io::{self, BufReader, BufRead, Write};
 use std::fs::{File, read_dir};
 use std::path::Path;
 use serde::Deserialize;
-use chrono::{NaiveDate, NaiveTime, NaiveDateTime};
+use chrono::{Local, NaiveDate, NaiveTime, NaiveDateTime};
 use flate2::read::GzDecoder;
 use zip::read::ZipArchive;
 use std::thread;
@@ -11,7 +11,7 @@ use os_pipe;
 
 mod file_selector;
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
 struct SearchRequest {
     start_stamp: String,
     end_stamp: String,
@@ -113,6 +113,13 @@ fn main() {
                     }
                 };
 
+                println!("{} - {} {} from {} - Body: {:?}", 
+                    Local::now().format("%Y-%m-%d %H:%M:%S"), 
+                    request.method(), 
+                    request.url(), 
+                    request.remote_addr(), 
+                    &req);
+
                 let start = match parse_timestamp(&req.start_stamp) {
                     Some(t) => t,
                     None => {
@@ -137,14 +144,20 @@ fn main() {
                 let search_string = req.search_string.clone();
                 thread::spawn(move || {
                     let result = (|| -> io::Result<()> {
-                        let entries = read_dir(folder_path)?;
+                        let entries: Vec<_> = read_dir(folder_path)?.filter_map(Result::ok).collect();
+                        println!("{} - Processing {} files: {:?}", 
+                            Local::now().format("%Y-%m-%d %H:%M:%S"), 
+                            entries.len(), 
+                            entries.iter().map(|e| e.path()).collect::<Vec<_>>());
+
                         for entry in entries {
-                            let entry = entry?;
                             let path = entry.path();
                             if path.is_file() {
+                                println!("{} - Start processing file: {}", Local::now().format("%Y-%m-%d %H:%M:%S"), path.display());
                                 if let Err(e) = search_file(&path, start, end, &search_string, &mut writer) {
                                     writeln!(writer, "X-LOG-SEARCHER-ERROR: Failed to process file {}: {}", path.display(), e)?;
                                 }
+                                println!("{} - End processing file: {}", Local::now().format("%Y-%m-%d %H:%M:%S"), path.display());
                             }
                         }
                         Ok(())
