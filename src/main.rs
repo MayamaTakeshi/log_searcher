@@ -9,6 +9,8 @@ use zip::read::ZipArchive;
 use std::thread;
 use os_pipe;
 
+mod file_selector;
+
 #[derive(Deserialize)]
 struct SearchRequest {
     start_stamp: String,

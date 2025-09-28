@@ -44,7 +44,7 @@ mod tests {
             make_file("c.log", 300),
         ];
 
-        let result = select_candidate_files_from_list(&all_files, 150, 250);
+        let result = select_candidate_files(&all_files, 150, 250);
         assert_eq!(result, vec!["b.log", "c.log"]);
     }
 
@@ -59,7 +59,7 @@ mod tests {
             make_file("f.log", 400),
         ];
 
-        let result = select_candidate_files_from_list(&all_files, 150, 300);
+        let result = select_candidate_files(&all_files, 150, 300);
         assert_eq!(result, vec!["b.log", "c.log", "d.log", "e.log"]);
     }
 
@@ -67,7 +67,7 @@ mod tests {
     fn test_no_selection() {
         let all_files = vec![make_file("a.log", 100), make_file("b.log", 200)];
 
-        let result = select_candidate_files_from_list(&all_files, 300, 400);
+        let result = select_candidate_files(&all_files, 300, 400);
         assert!(result.is_empty());
     }
 }
