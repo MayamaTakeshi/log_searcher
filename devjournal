@@ -1,0 +1,144 @@
+-------------------------------
+2025/09/28 takeshi:
+
+Draft:
+
+1) It will be an http server that will accept post requests with:
+{
+  start_stamp,
+  end_stamp,
+  search_string,
+  folder,
+}
+
+We will not use regex for date_time, because with rare exceptions, apps will log in formats like:
+2025-09-27 19:33:10
+2025-09-16T00:29:30
+2025/09/27 19:32:44
+
+So we can just match the timestamp tokens and processing will be fast.
+
+We will not use regex for string search either. Just use strings like UUIDs for search.
+
+But for exceptional cases we will accept search_regex.
+(but we will not accept start_regex nor end_regex because this would require more details like how to specify what is year, month, day etc in them).
+
+2) need to support old OSs like:
+
+CentOS release 5.3 (Final)
+
+and
+
+Ubuntu 10.04.2 LTS \n \l
+
+3) app should check the file suffix and decide if it should use a compression library or not.
+
+4) lines not starting with date_time should be added to the returned logs as part of the previous matching line as log they are consecutive to it (it might happen in case we get some stacktrace exception
+
+5) ChatGPT says:
+
+gzip is fast enough, but if you control compression format, consider zstd → much faster decompression.
+
+https://chatgpt.com/c/68d726fc-3db0-8332-bccd-850c50bc45f5
+
+-------------------------------
+2025/09/28 takeshi:
+
+Research:
+
+
+We can build nim apps on modern distros like my ubuntu 22.04 and run then on old OSs like CentOS 5.3 by doing in my PC:
+
+$ sudo apt install musl-tools
+
+Then a nim musl app can built this way:
+
+takeshi@takeshi-desktop:nim$ nim --gcc.exe:musl-gcc --gcc.linkerexe:musl-gcc --passL:-static c app.nim 
+
+Ex:
+
+takeshi@takeshi-desktop:nim$ cat app4.nim 
+import net, strutils
+
+const listenPort = 5000
+
+proc main() =
+  var serverSock = newSocket()
+  serverSock.setSockOpt(OptReuseAddr, true)
+  serverSock.bindAddr(Port(listenPort), "127.0.0.1")
+  serverSock.listen(10)
+  echo "Server running on http://127.0.0.1:", listenPort
+
+  while true:
+    var clientSock: Socket
+    serverSock.accept(clientSock)
+
+    echo "Accepted connection"
+
+    var reqLine = ""
+    while true:
+      let ch = clientSock.recv(1)
+      if ch.len == 0 or ch[0] == '\n': break
+      if ch[0] != '\r': reqLine.add ch
+
+    echo "Request line: ", reqLine
+
+    if reqLine.startsWith("GET /ping "):
+      let body = """{"pong":"ok"}"""
+      let resp = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: " &
+                 $body.len & "\r\nConnection: close\r\n\r\n" & body
+      clientSock.send(resp)
+      echo "Responded with pong"
+    else:
+      let body = "Not Found"
+      let resp = "HTTP/1.1 404 Not Found\r\nContent-Length: " &
+                 $body.len & "\r\nConnection: close\r\n\r\n" & body
+      clientSock.send(resp)
+      echo "Responded with 404"
+
+    clientSock.close()
+
+main()
+
+
+takeshi@takeshi-desktop:nim$ nim --gcc.exe:musl-gcc --gcc.linkerexe:musl-gcc --passL:-static c app4.nim 
+Hint: used config file '/home/takeshi/.asdf/installs/nim/2.2.4/config/nim.cfg' [Conf]
+Hint: used config file '/home/takeshi/.asdf/installs/nim/2.2.4/config/config.nims' [Conf]
+...........................................................................................................................
+Hint:  [Link]
+Hint: mm: orc; threads: on; opt: none (DEBUG BUILD, `-d:release` generates faster code)
+58664 lines; 0.993s; 91.246MiB peakmem; proj: /home/takeshi/tmp/learn/nim/app4.nim; out: /home/takeshi/tmp/learn/nim/app4 [SuccessX]
+takeshi@takeshi-desktop:nim$ 
+
+Then I started the and ping to it with:
+
+{"pong":"ok"}takeshi@takeshi-desktop:~$ curl --noproxy '*' http://127.0.0.1:5000/ping
+{"pong":"ok"}takeshi@takeshi-desktop:~$ 
+
+and it output:
+
+takeshi@takeshi-desktop:nim$ ./app4 
+Server running on http://127.0.0.1:5000
+Accepted connection
+Request line: GET /ping HTTP/1.1
+Responded with pong
+^CTraceback (most recent call last)
+/home/takeshi/tmp/learn/nim/app4.nim(41) app4
+/home/takeshi/.asdf/installs/nim/2.2.4/lib/pure/net.nim(14) main
+/home/takeshi/.asdf/installs/nim/2.2.4/lib/pure/net.nim(1155) accept
+/home/takeshi/.asdf/installs/nim/2.2.4/lib/pure/net.nim(1062) acceptAddr
+/home/takeshi/.asdf/installs/nim/2.2.4/lib/pure/nativesockets.nim(871) accept
+SIGINT: Interrupted by Ctrl-C.
+
+For zip file support we will use this library that supports streaming (nim installed by asdf and it comes with nimble):
+
+takeshi@takeshi-desktop:nim$ nimble install zip
+
+-------------------------------
+2025/09/28 takeshi:
+
+We could build a rust version of the app on ubuntu 22.04 and test it on centos 5.3 (we could not use actix async etc and so we will tiny_http instead (sync/blocking) which is actually good as we don't want to serve more than one request at a time).
+
+
+
+
