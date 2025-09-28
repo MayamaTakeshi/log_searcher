@@ -1,11 +1,13 @@
-use tiny_http::{Server, Response, Request};
-use std::io::{BufReader, BufRead};
+use rouille::{Response, ResponseBody, router};
+use std::io::{BufReader, BufRead, Write};
 use std::fs::{File, read_dir};
 use std::path::Path;
 use serde::Deserialize;
 use chrono::{NaiveDate, NaiveTime, NaiveDateTime};
 use flate2::read::GzDecoder;
 use zip::read::ZipArchive;
+use std::thread;
+use os_pipe;
 
 #[derive(Deserialize)]
 struct SearchRequest {
@@ -44,7 +46,7 @@ fn parse_timestamp(s: &str) -> Option<NaiveDateTime> {
 }
 
 // Stream file line by line
-fn search_file(path: &Path, start: NaiveDateTime, end: NaiveDateTime, search: &str, results: &mut Vec<String>) {
+fn search_file(path: &Path, start: NaiveDateTime, end: NaiveDateTime, search: &str, results: &mut impl Write) {
     if let Ok(file) = File::open(path) {
         let extension = path.extension().and_then(|e| e.to_str()).unwrap_or("");
 
@@ -56,7 +58,7 @@ fn search_file(path: &Path, start: NaiveDateTime, end: NaiveDateTime, search: &s
                     if line.len() >= 19 {
                         if let Some(ts) = parse_timestamp(&line[..19]) {
                             if ts >= start && ts <= end && line.contains(search) {
-                                results.push(line);
+                                let _ = writeln!(results, "{}", line);
                             }
                         }
                     }
@@ -71,7 +73,7 @@ fn search_file(path: &Path, start: NaiveDateTime, end: NaiveDateTime, search: &s
                                 if line.len() >= 19 {
                                     if let Some(ts) = parse_timestamp(&line[..19]) {
                                         if ts >= start && ts <= end && line.contains(search) {
-                                            results.push(line);
+                                            let _ = writeln!(results, "{}", line);
                                         }
                                     }
                                 }
@@ -86,7 +88,7 @@ fn search_file(path: &Path, start: NaiveDateTime, end: NaiveDateTime, search: &s
                     if line.len() >= 19 {
                         if let Some(ts) = parse_timestamp(&line[..19]) {
                             if ts >= start && ts <= end && line.contains(search) {
-                                results.push(line);
+                                let _ = writeln!(results, "{}", line);
                             }
                         }
                     }
@@ -96,69 +98,60 @@ fn search_file(path: &Path, start: NaiveDateTime, end: NaiveDateTime, search: &s
     }
 }
 
-fn handle_request(mut request: Request) {
-    if request.method() != &tiny_http::Method::Post || request.url() != "/search_logs" {
-        let _ = request.respond(Response::from_string("Not Found").with_status_code(404));
-        return;
-    }
-
-    let mut body = String::new();
-    if request.as_reader().read_to_string(&mut body).is_err() {
-        let _ = request.respond(Response::from_string("Failed to read body").with_status_code(400));
-        return;
-    }
-
-    let req: SearchRequest = match serde_json::from_str(&body) {
-        Ok(r) => r,
-        Err(_) => {
-            let _ = request.respond(Response::from_string("Invalid JSON").with_status_code(400));
-            return;
-        }
-    };
-
-    let start = match parse_timestamp(&req.start_stamp) {
-        Some(t) => t,
-        None => {
-            let _ = request.respond(Response::from_string("Invalid start_stamp").with_status_code(400));
-            return;
-        }
-    };
-
-    let end = match parse_timestamp(&req.end_stamp) {
-        Some(t) => t,
-        None => {
-            let _ = request.respond(Response::from_string("Invalid end_stamp").with_status_code(400));
-            return;
-        }
-    };
-
-    let folder_path = Path::new(&req.folder);
-    if !folder_path.is_dir() {
-        let _ = request.respond(Response::from_string("Folder does not exist").with_status_code(400));
-        return;
-    }
-
-    // Collect all files in the folder
-    let mut results = Vec::new();
-    if let Ok(entries) = read_dir(folder_path) {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.is_file() {
-                search_file(&path, start, end, &req.search_string, &mut results);
-            }
-        }
-    }
-
-    let json = serde_json::to_string(&results).unwrap_or_else(|_| "[]".to_string());
-    let _ = request.respond(Response::from_string(json).with_status_code(200));
-}
-
 fn main() {
-    let server = Server::http("0.0.0.0:8078").expect("Failed to start server");
     println!("Server running on http://0.0.0.0:8078");
+    rouille::start_server("0.0.0.0:8078", move |request| {
+        router!(request,            
+            (POST) (/search_logs) => {
+                let req: SearchRequest = match rouille::input::json_input(request) {
+                    Ok(r) => r,
+                    Err(_) => {
+                        return Response::text("Invalid JSON").with_status_code(400);
+                    }
+                };
 
-    for request in server.incoming_requests() {
-        handle_request(request);
-    }
+                let start = match parse_timestamp(&req.start_stamp) {
+                    Some(t) => t,
+                    None => {
+                        return Response::text("Invalid start_stamp").with_status_code(400);
+                    }
+                };
+
+                let end = match parse_timestamp(&req.end_stamp) {
+                    Some(t) => t,
+                    None => {
+                        return Response::text("Invalid end_stamp").with_status_code(400);
+                    }
+                };
+
+                let folder_path = Path::new(&req.folder).to_path_buf();
+                if !folder_path.is_dir() {
+                    return Response::text("Folder does not exist").with_status_code(400);
+                }
+
+                let (reader, mut writer) = os_pipe::pipe().expect("Failed to create pipe");
+
+                let search_string = req.search_string.clone();
+                thread::spawn(move || {
+                    if let Ok(entries) = read_dir(folder_path) {
+                        for entry in entries.flatten() {
+                            let path = entry.path();
+                            if path.is_file() {
+                                search_file(&path, start, end, &search_string, &mut writer);
+                            }
+                        }
+                    }
+                });
+
+                Response {
+                    status_code: 200,
+                    headers: vec![("Content-Type".into(), "text/plain".into())],
+                    data: ResponseBody::from_reader(reader),
+                    upgrade: None,
+                }
+            },
+
+            _ => Response::empty_404()
+        )
+    });
 }
-
