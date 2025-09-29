@@ -24,76 +24,61 @@ struct SearchRequest {
 fn parse_timestamp(s: &str) -> Option<NaiveDateTime> {
     if s.len() < 19 { return None; }
 
-    let y: i32 = s[0..4].parse().ok()?;
-    let m: u32 = s[5..7].parse().ok()?;
-    let d: u32 = s[8..10].parse().ok()?;
-    let h: u32 = s[11..13].parse().ok()?;
-    let min: u32 = s[14..16].parse().ok()?;
-    let sec: u32 = s[17..19].parse().ok()?;
+    let re = Regex::new(r"^(\d{4})/(\d{2})/(\d{2}) (\d{2}):(\d{2}):(\d{2})").unwrap();
+    let caps = re.captures(s)?;
+
+    let y: i32 = caps.get(1)?.as_str().parse().ok()?;
+    let m: u32 = caps.get(2)?.as_str().parse().ok()?;
+    let d: u32 = caps.get(3)?.as_str().parse().ok()?;
+    let h: u32 = caps.get(4)?.as_str().parse().ok()?;
+    let min: u32 = caps.get(5)?.as_str().parse().ok()?;
+    let sec: u32 = caps.get(6)?.as_str().parse().ok()?;
 
     let date = NaiveDate::from_ymd_opt(y, m, d)?;
     let time = NaiveTime::from_hms_opt(h, min, sec)?;
     Some(NaiveDateTime::new(date, time))
 }
 
-// Stream file line by line
 fn search_file(path: &Path, start: NaiveDateTime, end: NaiveDateTime, search: &str, results: &mut impl Write) -> io::Result<()> {
     let file = File::open(path)?;
     let extension = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+
+    fn process_lines(reader: impl BufRead, start: NaiveDateTime, end: NaiveDateTime, search: &str, results: &mut impl Write) -> io::Result<()> {
+        let mut capture = false;
+        for line in reader.lines() {
+            let line = line?;
+            if let Some(ts) = parse_timestamp(&line) {
+                if ts > end {
+                    break;
+                }
+                capture = ts >= start && line.contains(search);
+                if capture {
+                    writeln!(results, "{}", line)?;
+                }
+            } else if capture {
+                writeln!(results, "{}", line)?;
+            }
+        }
+        Ok(())
+    }
 
     match extension {
         "gz" => {
             let decoder = GzDecoder::new(file);
             let reader = BufReader::new(decoder);
-            for line in reader.lines() {
-                let line = line?;
-                if line.len() >= 19 {
-                    if let Some(ts) = parse_timestamp(&line[..19]) {
-                        if ts > end {
-                            break; // Stop processing if the timestamp is after the end time
-                        }
-                        if ts >= start && line.contains(search) {
-                            writeln!(results, "{}", line)?;
-                        }
-                    }
-                }
-            }
+            process_lines(reader, start, end, search, results)?;
         }
         "zip" => {
             let mut archive = ZipArchive::new(file)?;
             for i in 0..archive.len() {
                 let mut zfile = archive.by_index(i)?;
                 let reader = BufReader::new(&mut zfile);
-                for line in reader.lines() {
-                    let line = line?;
-                    if line.len() >= 19 {
-                        if let Some(ts) = parse_timestamp(&line[..19]) {
-                            if ts > end {
-                                break; // Stop processing if the timestamp is after the end time
-                            }
-                            if ts >= start && line.contains(search) {
-                                writeln!(results, "{}", line)?;
-                            }
-                        }
-                    }
-                }
+                process_lines(reader, start, end, search, results)?;
             }
         }
         _ => {
             let reader = BufReader::new(file);
-            for line in reader.lines() {
-                let line = line?;
-                if line.len() >= 19 {
-                    if let Some(ts) = parse_timestamp(&line[..19]) {
-                        if ts > end {
-                            break; // Stop processing if the timestamp is after the end time
-                        }
-                        if ts >= start && line.contains(search) {
-                            writeln!(results, "{}", line)?;
-                        }
-                    }
-                }
-            }
+            process_lines(reader, start, end, search, results)?;
         }
     }
     Ok(())
