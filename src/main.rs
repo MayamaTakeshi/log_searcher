@@ -25,6 +25,9 @@ fn parse_timestamp(s: &str) -> Option<NaiveDateTime> {
     if s.len() < 19 { return None; }
 
     let y: i32 = s[0..4].parse().ok()?;
+    if y < 2000 || y >= 2100 {
+        return None;
+    }
     let m: u32 = s[5..7].parse().ok()?;
     let d: u32 = s[8..10].parse().ok()?;
     let h: u32 = s[11..13].parse().ok()?;
