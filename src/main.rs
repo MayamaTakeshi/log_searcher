@@ -24,15 +24,12 @@ struct SearchRequest {
 fn parse_timestamp(s: &str) -> Option<NaiveDateTime> {
     if s.len() < 19 { return None; }
 
-    let re = Regex::new(r"^(\d{4})/(\d{2})/(\d{2}) (\d{2}):(\d{2}):(\d{2})").unwrap();
-    let caps = re.captures(s)?;
-
-    let y: i32 = caps.get(1)?.as_str().parse().ok()?;
-    let m: u32 = caps.get(2)?.as_str().parse().ok()?;
-    let d: u32 = caps.get(3)?.as_str().parse().ok()?;
-    let h: u32 = caps.get(4)?.as_str().parse().ok()?;
-    let min: u32 = caps.get(5)?.as_str().parse().ok()?;
-    let sec: u32 = caps.get(6)?.as_str().parse().ok()?;
+    let y: i32 = s[0..4].parse().ok()?;
+    let m: u32 = s[5..7].parse().ok()?;
+    let d: u32 = s[8..10].parse().ok()?;
+    let h: u32 = s[11..13].parse().ok()?;
+    let min: u32 = s[14..16].parse().ok()?;
+    let sec: u32 = s[17..19].parse().ok()?;
 
     let date = NaiveDate::from_ymd_opt(y, m, d)?;
     let time = NaiveTime::from_hms_opt(h, min, sec)?;
