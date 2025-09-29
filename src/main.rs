@@ -60,7 +60,10 @@ fn search_file(path: &Path, start: NaiveDateTime, end: NaiveDateTime, search: &s
                 let line = line?;
                 if line.len() >= 19 {
                     if let Some(ts) = parse_timestamp(&line[..19]) {
-                        if ts >= start && ts <= end && line.contains(search) {
+                        if ts > end {
+                            break; // Stop processing if the timestamp is after the end time
+                        }
+                        if ts >= start && line.contains(search) {
                             writeln!(results, "{}", line)?;
                         }
                     }
@@ -76,7 +79,10 @@ fn search_file(path: &Path, start: NaiveDateTime, end: NaiveDateTime, search: &s
                     let line = line?;
                     if line.len() >= 19 {
                         if let Some(ts) = parse_timestamp(&line[..19]) {
-                            if ts >= start && ts <= end && line.contains(search) {
+                            if ts > end {
+                                break; // Stop processing if the timestamp is after the end time
+                            }
+                            if ts >= start && line.contains(search) {
                                 writeln!(results, "{}", line)?;
                             }
                         }
@@ -90,7 +96,10 @@ fn search_file(path: &Path, start: NaiveDateTime, end: NaiveDateTime, search: &s
                 let line = line?;
                 if line.len() >= 19 {
                     if let Some(ts) = parse_timestamp(&line[..19]) {
-                        if ts >= start && ts <= end && line.contains(search) {
+                        if ts > end {
+                            break; // Stop processing if the timestamp is after the end time
+                        }
+                        if ts >= start && line.contains(search) {
                             writeln!(results, "{}", line)?;
                         }
                     }
@@ -144,7 +153,8 @@ fn main() {
                 let search_string = req.search_string.clone();
                 thread::spawn(move || {
                     let result = (|| -> io::Result<()> {
-                        let entries: Vec<_> = read_dir(folder_path)?.filter_map(Result::ok).collect();
+                        let mut entries: Vec<_> = read_dir(folder_path)?.filter_map(Result::ok).collect();
+                        entries.sort_by_key(|e| e.metadata().map(|m| m.modified().unwrap_or(std::time::SystemTime::UNIX_EPOCH)).unwrap_or(std::time::SystemTime::UNIX_EPOCH));
                         println!("{} - Processing {} files: {:?}", 
                             Local::now().format("%Y-%m-%d %H:%M:%S"), 
                             entries.len(), 
