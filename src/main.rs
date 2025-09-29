@@ -1,13 +1,14 @@
 use rouille::{Response, ResponseBody, router};
 use std::io::{self, BufReader, BufRead, Write};
 use std::fs::{File, read_dir};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use serde::Deserialize;
 use chrono::{Local, NaiveDate, NaiveTime, NaiveDateTime};
 use flate2::read::GzDecoder;
 use zip::read::ZipArchive;
 use std::thread;
 use os_pipe;
+use regex::Regex;
 
 mod file_selector;
 
@@ -17,20 +18,8 @@ struct SearchRequest {
     end_stamp: String,
     search_string: String,
     folder: String,
+    file_name_regex: Option<String>,
 }
-
-// Parse timestamp from line
-/*
-fn parse_timestamp(s: &str) -> Option<NaiveDateTime> {
-    let formats = ["%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S", "%Y/%m/%d %H:%M:%S"];
-    for fmt in &formats {
-        if let Ok(dt) = NaiveDateTime::parse_from_str(s, fmt) {
-            return Some(dt);
-        }
-    }
-    None
-}
-*/
 
 fn parse_timestamp(s: &str) -> Option<NaiveDateTime> {
     if s.len() < 19 { return None; }
@@ -151,24 +140,67 @@ fn main() {
                 let (reader, mut writer) = os_pipe::pipe().expect("Failed to create pipe");
 
                 let search_string = req.search_string.clone();
+                let file_name_regex = req.file_name_regex.clone();
+
                 thread::spawn(move || {
                     let result = (|| -> io::Result<()> {
-                        let mut entries: Vec<_> = read_dir(folder_path)?.filter_map(Result::ok).collect();
+                        let file_name_re = match file_name_regex {
+                            Some(s) => match Regex::new(&s) {
+                                Ok(re) => Some(re),
+                                Err(e) => {
+                                    let _ = writeln!(writer, "X-LOG-SEARCHER-ERROR: Invalid regex: {}", e);
+                                    return Ok(());
+                                }
+                            },
+                            None => None,
+                        };
+
+                        let mut entries: Vec<_> = read_dir(&folder_path)?.filter_map(Result::ok).collect();
                         entries.sort_by_key(|e| e.metadata().map(|m| m.modified().unwrap_or(std::time::SystemTime::UNIX_EPOCH)).unwrap_or(std::time::SystemTime::UNIX_EPOCH));
+                        
+                        let mut files_to_process = Vec::new();
+
+                        if let Some(re) = &file_name_re {
+                            let mut file_entries = Vec::new();
+                            for entry in entries {
+                                if let Ok(metadata) = entry.metadata() {
+                                    if metadata.is_file() {
+                                        if let Some(file_name) = entry.path().file_name().and_then(|n| n.to_str()) {
+                                            let mtime = metadata.modified().unwrap_or(std::time::SystemTime::UNIX_EPOCH)
+                                                .duration_since(std::time::SystemTime::UNIX_EPOCH).unwrap_or_default().as_secs();
+                                            file_entries.push(file_selector::FileEntry { name: file_name.to_string(), mtime });
+                                        }
+                                    }
+                                }
+                            }
+
+                            let candidate_files = file_selector::select_candidate_files(&file_entries, start.and_utc().timestamp() as u64, end.and_utc().timestamp() as u64);
+
+                            for file_name in candidate_files {
+                                if re.is_match(&file_name) {
+                                    files_to_process.push(PathBuf::from(&folder_path).join(file_name));
+                                }
+                            }
+                        } else {
+                            // If no file_name_regex, process all files in the folder, subject to time-based filtering within search_file
+                            for entry in entries {
+                                if entry.path().is_file() {
+                                    files_to_process.push(entry.path());
+                                }
+                            }
+                        }
+
                         println!("{} - Processing {} files: {:?}", 
                             Local::now().format("%Y-%m-%d %H:%M:%S"), 
-                            entries.len(), 
-                            entries.iter().map(|e| e.path()).collect::<Vec<_>>());
+                            files_to_process.len(), 
+                            &files_to_process);
 
-                        for entry in entries {
-                            let path = entry.path();
-                            if path.is_file() {
-                                println!("{} - Start processing file: {}", Local::now().format("%Y-%m-%d %H:%M:%S"), path.display());
-                                if let Err(e) = search_file(&path, start, end, &search_string, &mut writer) {
-                                    writeln!(writer, "X-LOG-SEARCHER-ERROR: Failed to process file {}: {}", path.display(), e)?;
-                                }
-                                println!("{} - End processing file: {}", Local::now().format("%Y-%m-%d %H:%M:%S"), path.display());
+                        for path in files_to_process {
+                            println!("{} - Start processing file: {}", Local::now().format("%Y-%m-%d %H:%M:%S"), path.display());
+                            if let Err(e) = search_file(&path, start, end, &search_string, &mut writer) {
+                                writeln!(writer, "X-LOG-SEARCHER-ERROR: Failed to process file {}: {}", path.display(), e)?;
                             }
+                            println!("{} - End processing file: {}", Local::now().format("%Y-%m-%d %H:%M:%S"), path.display());
                         }
                         Ok(())
                     })();
