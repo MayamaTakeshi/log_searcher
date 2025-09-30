@@ -16,7 +16,7 @@ mod file_selector;
 struct SearchRequest {
     start_stamp: String,
     end_stamp: String,
-    search_string: String,
+    search_string: Option<String>,
     folder: String,
     file_name_regex: Option<String>,
 }
@@ -39,19 +39,22 @@ fn parse_timestamp(s: &str) -> Option<NaiveDateTime> {
     Some(NaiveDateTime::new(date, time))
 }
 
-fn search_file(path: &Path, start: NaiveDateTime, end: NaiveDateTime, search: &str, results: &mut impl Write) -> io::Result<()> {
+fn search_file(path: &Path, start: NaiveDateTime, end: NaiveDateTime, search: &Option<String>, results: &mut impl Write) -> io::Result<()> {
     let file = File::open(path)?;
     let extension = path.extension().and_then(|e| e.to_str()).unwrap_or("");
 
-    fn process_lines(reader: impl BufRead, start: NaiveDateTime, end: NaiveDateTime, search: &str, results: &mut impl Write) -> io::Result<()> {
+    fn process_lines(reader: impl BufRead, start: NaiveDateTime, end: NaiveDateTime, search: &Option<String>, results: &mut impl Write) -> io::Result<()> {
         let mut capture = false;
+        let search_term = search.as_deref().unwrap_or("");
+        let perform_search = !search_term.is_empty();
+
         for line in reader.lines() {
             let line = line?;
             if let Some(ts) = parse_timestamp(&line) {
                 if ts > end {
                     break;
                 }
-                capture = ts >= start && line.contains(search);
+                capture = ts >= start && (!perform_search || line.contains(search_term));
                 if capture {
                     writeln!(results, "{}", line)?;
                 }
@@ -197,7 +200,7 @@ fn main() {
 
                 Response {
                     status_code: 200,
-                    headers: vec![("Content-Type".into(), "text/plain".into())],
+                    headers: vec![("Content-Type".into(), "text/plain; charset=utf-8".into())],
                     data: ResponseBody::from_reader(reader),
                     upgrade: None,
                 }
