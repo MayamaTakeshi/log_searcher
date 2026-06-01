@@ -21,7 +21,7 @@ struct SearchRequest {
     file_name_regex: Option<String>,
 }
 
-fn parse_timestamp(s: &str) -> Option<NaiveDateTime> {
+pub(crate) fn parse_timestamp(s: &str) -> Option<NaiveDateTime> {
     if s.len() < 19 { return None; }
 
     let y: i32 = s[0..4].parse().ok()?;
@@ -39,7 +39,7 @@ fn parse_timestamp(s: &str) -> Option<NaiveDateTime> {
     Some(NaiveDateTime::new(date, time))
 }
 
-fn search_file(path: &Path, start: NaiveDateTime, end: NaiveDateTime, search: &Option<String>, results: &mut impl Write) -> io::Result<()> {
+pub(crate) fn search_file(path: &Path, start: NaiveDateTime, end: NaiveDateTime, search: &Option<String>, results: &mut impl Write) -> io::Result<()> {
     let file = File::open(path)?;
     let extension = path.extension().and_then(|e| e.to_str()).unwrap_or("");
 
@@ -209,4 +209,135 @@ fn main() {
             _ => Response::empty_404()
         )
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use flate2::write::GzEncoder;
+    use flate2::Compression;
+    use zip::write::{ZipWriter, FileOptions};
+
+    fn ts(s: &str) -> NaiveDateTime {
+        parse_timestamp(s).unwrap()
+    }
+
+    fn search(path: &Path, start: &str, end: &str, search: Option<&str>) -> String {
+        let mut out = Vec::new();
+        search_file(path, ts(start), ts(end), &search.map(str::to_string), &mut out).unwrap();
+        String::from_utf8(out).unwrap()
+    }
+
+    fn tmp_path(name: &str) -> PathBuf {
+        std::env::temp_dir().join(name)
+    }
+
+    // --- parse_timestamp ---
+
+    #[test]
+    fn test_parse_timestamp_space_separator() {
+        assert!(parse_timestamp("2025-09-27 19:33:10 some text").is_some());
+    }
+
+    #[test]
+    fn test_parse_timestamp_t_separator() {
+        assert!(parse_timestamp("2025-09-16T00:29:30").is_some());
+    }
+
+    #[test]
+    fn test_parse_timestamp_too_short() {
+        assert!(parse_timestamp("2025-09-27").is_none());
+    }
+
+    #[test]
+    fn test_parse_timestamp_year_out_of_range() {
+        assert!(parse_timestamp("1999-01-01 00:00:00").is_none());
+        assert!(parse_timestamp("2100-01-01 00:00:00").is_none());
+    }
+
+    #[test]
+    fn test_parse_timestamp_invalid_date() {
+        assert!(parse_timestamp("2025-13-01 00:00:00").is_none());
+    }
+
+    // --- search_file (plain text) ---
+
+    #[test]
+    fn test_plain_basic_range() {
+        let path = tmp_path("ls_test_plain.log");
+        fs::write(&path, "\
+2025-01-01 00:00:00 before\n\
+2025-01-01 01:00:00 match1\n\
+2025-01-01 02:00:00 match2\n\
+2025-01-01 03:00:00 after\n").unwrap();
+
+        let out = search(&path, "2025-01-01 01:00:00", "2025-01-01 02:00:00", None);
+        assert_eq!(out, "2025-01-01 01:00:00 match1\n2025-01-01 02:00:00 match2\n");
+    }
+
+    #[test]
+    fn test_plain_continuation_lines() {
+        let path = tmp_path("ls_test_continuation.log");
+        fs::write(&path, "\
+2025-01-01 01:00:00 error occurred\n\
+at line 42\n\
+at line 99\n\
+2025-01-01 02:00:00 next entry\n").unwrap();
+
+        let out = search(&path, "2025-01-01 01:00:00", "2025-01-01 01:30:00", None);
+        assert_eq!(out, "2025-01-01 01:00:00 error occurred\nat line 42\nat line 99\n");
+    }
+
+    #[test]
+    fn test_plain_search_string_filter() {
+        let path = tmp_path("ls_test_search.log");
+        fs::write(&path, "\
+2025-01-01 01:00:00 user=alice action=login\n\
+2025-01-01 01:01:00 user=bob action=login\n\
+2025-01-01 01:02:00 user=alice action=logout\n").unwrap();
+
+        let out = search(&path, "2025-01-01 01:00:00", "2025-01-01 01:02:00", Some("alice"));
+        assert!(out.contains("alice"));
+        assert!(!out.contains("bob"));
+    }
+
+    #[test]
+    fn test_plain_no_results_outside_range() {
+        let path = tmp_path("ls_test_norange.log");
+        fs::write(&path, "2025-01-01 01:00:00 only line\n").unwrap();
+
+        let out = search(&path, "2025-01-01 02:00:00", "2025-01-01 03:00:00", None);
+        assert!(out.is_empty());
+    }
+
+    // --- search_file (.gz) ---
+
+    #[test]
+    fn test_gz_basic_range() {
+        let path = tmp_path("ls_test.log.gz");
+        let file = fs::File::create(&path).unwrap();
+        let mut enc = GzEncoder::new(file, Compression::default());
+        enc.write_all(b"2025-01-01 01:00:00 gz line\n2025-01-01 02:00:00 gz after\n").unwrap();
+        enc.finish().unwrap();
+
+        let out = search(&path, "2025-01-01 01:00:00", "2025-01-01 01:30:00", None);
+        assert_eq!(out, "2025-01-01 01:00:00 gz line\n");
+    }
+
+    // --- search_file (.zip) ---
+
+    #[test]
+    fn test_zip_basic_range() {
+        let path = tmp_path("ls_test.zip");
+        let file = fs::File::create(&path).unwrap();
+        let mut zip = ZipWriter::new(file);
+        let opts = FileOptions::default();
+        zip.start_file("app.log", opts).unwrap();
+        zip.write_all(b"2025-01-01 01:00:00 zip line\n2025-01-01 02:00:00 zip after\n").unwrap();
+        zip.finish().unwrap();
+
+        let out = search(&path, "2025-01-01 01:00:00", "2025-01-01 01:30:00", None);
+        assert_eq!(out, "2025-01-01 01:00:00 zip line\n");
+    }
 }
