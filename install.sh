@@ -1,12 +1,23 @@
 #!/bin/sh
 set -e
 
-BINARY=./target/x86_64-unknown-linux-musl/release/log_searcher
+BINARY=./log_searcher
 
 if [ ! -f "$BINARY" ]; then
   echo "Binary not found: $BINARY"
   echo "Run build.sh first."
   exit 1
+fi
+
+if command -v systemctl > /dev/null 2>&1 && [ -d /etc/systemd/system ]; then
+  if systemctl is-active --quiet log_searcher; then
+    echo "Stopping running service..."
+    systemctl stop log_searcher
+  fi
+else
+  if [ -f /etc/init.d/log_searcher ]; then
+    /etc/init.d/log_searcher stop 2>/dev/null || true
+  fi
 fi
 
 cp "$BINARY" /usr/local/bin/log_searcher

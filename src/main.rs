@@ -45,14 +45,21 @@ pub(crate) fn search_file(path: &Path, start: NaiveDateTime, end: NaiveDateTime,
     let file = File::open(path)?;
     let extension = path.extension().and_then(|e| e.to_str()).unwrap_or("");
 
-    fn process_lines(reader: impl BufRead, start: NaiveDateTime, end: NaiveDateTime, search: &Option<String>, results: &mut impl Write) -> io::Result<()> {
+    fn process_lines(mut reader: impl BufRead, start: NaiveDateTime, end: NaiveDateTime, search: &Option<String>, results: &mut impl Write) -> io::Result<()> {
         let mut capture = false;
         let search_term = search.as_deref().unwrap_or("");
         let perform_search = !search_term.is_empty();
 
-        for line in reader.lines() {
-            let line = line?;
-            if let Some(ts) = parse_timestamp(&line) {
+        let mut buf = Vec::new();
+        loop {
+            buf.clear();
+            let n = reader.read_until(b'\n', &mut buf)?;
+            if n == 0 { break; }
+            
+            let line = String::from_utf8_lossy(&buf);
+            let line = line.trim_end_matches('\n').trim_end_matches('\r');
+            
+            if let Some(ts) = parse_timestamp(line) {
                 if ts > end {
                     break;
                 }

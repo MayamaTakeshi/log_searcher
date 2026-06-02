@@ -8,11 +8,14 @@ VERSION=$(grep '^version' Cargo.toml | head -1 | sed 's/.*"\(.*\)"/\1/')
 
 ./build.sh
 
-rm -fr package
-mkdir package
+NAME=log_searcher-$VERSION
 
-cp install.sh  log_searcher.initd  log_searcher.service  README.md target/x86_64-unknown-linux-musl/release/log_searcher package/
+rm -fr $NAME
+rm -f $NAME.zip
+mkdir $NAME/
 
-zip -r log_searcher-$VERSION.zip package/
+cp install.sh log_searcher.initd log_searcher.service  README.md target/x86_64-unknown-linux-musl/release/log_searcher $NAME/
 
-echo "Release ready: log_searcher-$VERSION.zip"
+zip -r $NAME.zip $NAME/
+
+echo "Release ready: $NAME.zip"

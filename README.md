@@ -1,6 +1,8 @@
 # log_searcher
 A simple http server that permits to search inside log files
 
+It was written in rust and is built to target [musl](https://en.wikipedia.org/wiki/Musl) to permit to run a single binary in any linux system old or new.
+
 ## Usage
 
 Start the server (listens on port 8078):
