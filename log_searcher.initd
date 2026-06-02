@@ -1,0 +1,29 @@
+#!/bin/sh
+### BEGIN INIT INFO
+# Provides:          log_searcher
+# Required-Start:    $network
+# Required-Stop:     $network
+# Default-Start:     2 3 4 5
+# Default-Stop:      0 1 6
+# Short-Description: log_searcher HTTP server
+### END INIT INFO
+
+DAEMON=/usr/local/bin/log_searcher
+PIDFILE=/var/run/log_searcher.pid
+
+case "$1" in
+  start)
+    start-stop-daemon --start --background --make-pidfile --pidfile $PIDFILE --exec $DAEMON
+    ;;
+  stop)
+    start-stop-daemon --stop --pidfile $PIDFILE
+    ;;
+  restart)
+    $0 stop
+    $0 start
+    ;;
+  *)
+    echo "Usage: $0 {start|stop|restart}"
+    exit 1
+    ;;
+esac

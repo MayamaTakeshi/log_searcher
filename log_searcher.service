@@ -1,0 +1,10 @@
+[Unit]
+Description=log_searcher HTTP server
+After=network.target
+
+[Service]
+ExecStart=/usr/local/bin/log_searcher
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
