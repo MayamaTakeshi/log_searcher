@@ -12,6 +12,8 @@ use regex::Regex;
 
 mod file_selector;
 
+const VERSION: &str = env!("CARGO_PKG_VERSION");
+
 #[derive(Deserialize, Debug)]
 struct SearchRequest {
     start_stamp: String,
@@ -88,6 +90,10 @@ pub(crate) fn search_file(path: &Path, start: NaiveDateTime, end: NaiveDateTime,
 }
 
 fn main() {
+    if std::env::args().any(|a| a == "-v") {
+        println!("{}", VERSION);
+        return;
+    }
     println!("Server running on http://0.0.0.0:8078");
     rouille::start_server("0.0.0.0:8078", move |request| {
         router!(request,            
